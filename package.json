@@ -1,0 +1,29 @@
+{
+  "name": "rps-app",
+  "version": "1.0.0",
+  "description": "Камень, ножницы, бумага: ИИ-игра",
+  "author": "ИИ-клуб",
+  "private": true,
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "exe": "node node_modules/electron/install.js && electron-builder --win portable",
+    "apk": "node build-apk.js"
+  },
+  "build": {
+    "appId": "by.syt.rps",
+    "productName": "Камень ножницы бумага",
+    "files": ["main.js", "www/**/*"],
+    "electronDist": "node_modules/electron/dist",
+    "win": { "target": "portable" },
+    "portable": { "artifactName": "kamen-nozhnicy-bumaga.exe" },
+    "directories": { "output": "dist" }
+  },
+  "devDependencies": {
+    "@capacitor/android": "8.5.3",
+    "@capacitor/cli": "8.5.3",
+    "@capacitor/core": "8.5.3",
+    "electron": "44.7.0",
+    "electron-builder": "26.15.3"
+  }
+}

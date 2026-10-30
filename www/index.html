@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Камень, ножницы, бумага: ИИ-игра</title>
+<style>
+:root { --bg:#efeae1; --panel:#fbf8f2; --ink:#1f1d1a; --muted:#5b574f; --line:#e2dccf; --card:#fff; --accent:#0f8a7a; --warn:#d06a1f; --bad:#c2362b; }
+* { box-sizing:border-box; }
+body { margin:0; min-height:100vh; background:var(--bg); color:var(--ink); font-family:"Segoe UI", system-ui, sans-serif; }
+main { width:min(980px, calc(100% - 32px)); margin:32px auto; padding:28px; background:var(--panel); border-radius:14px; box-shadow:0 8px 24px rgba(40,30,10,.07); }
+h1 { margin:0 0 8px; font-size:clamp(28px, 5vw, 46px); letter-spacing:0; } p { color:var(--muted); line-height:1.45; } .layout { display:grid; grid-template-columns:minmax(300px, 1.15fr) minmax(260px, .85fr); gap:20px; margin-top:22px; }.camera { overflow:hidden; background:#161b19; border-radius:10px; aspect-ratio:4/3; }.camera canvas { width:100%; height:100%; object-fit:cover; }.panel { padding:20px; background:var(--card); border:1px solid var(--line); border-radius:10px; }.label { margin:0 0 5px; color:var(--muted); font-size:14px; text-transform:uppercase; letter-spacing:.06em; }.choice { margin:0 0 20px; min-height:47px; font-weight:750; font-size:31px; }.score { display:grid; grid-template-columns:repeat(3, 1fr); gap:8px; margin:18px 0; }.score div { padding:11px 6px; background:var(--panel); border:1px solid var(--line); border-radius:8px; text-align:center; color:var(--muted); font-size:14px; }.score b { display:block; margin-top:3px; color:var(--ink); font-size:26px; }.status { min-height:48px; padding:12px; border-left:4px solid var(--accent); background:#edf8f5; border-radius:0 8px 8px 0; color:var(--ink); line-height:1.35; }.status.warn { border-color:var(--warn); background:#fff6e8; }.status.error { border-color:var(--bad); background:#fff0ee; } button { width:100%; margin-top:14px; padding:12px 16px; border:0; border-radius:8px; background:var(--accent); color:#fff; cursor:pointer; font:700 16px "Segoe UI", system-ui, sans-serif; }button:hover { filter:brightness(.94); } button:disabled { cursor:not-allowed; opacity:.55; }.note { margin-top:20px; padding-top:16px; border-top:1px solid var(--line); font-size:14px; }.note code { color:var(--ink); } @media (max-width:700px) { main { margin:16px auto; padding:18px; }.layout { grid-template-columns:1fr; } }
+</style>
+<style>
+.camera { aspect-ratio:1; }
+.camera canvas { display:block; }
+.settings { margin-top:14px; font-size:14px; color:var(--muted); }
+.settings summary { width:max-content; cursor:pointer; color:var(--muted); }
+.settings summary:hover { color:var(--ink); }
+.settings[open] { padding:14px; background:var(--panel); border:1px solid var(--line); border-radius:8px; }
+.settings[open] summary { margin-bottom:12px; color:var(--ink); font-weight:700; }
+.settings label { display:block; margin-top:10px; color:var(--ink); }
+.settings input[type=range] { display:block; width:100%; margin:6px 0 2px; accent-color:var(--accent); }
+.settings .explain { margin:0 0 6px; font-size:13px; line-height:1.35; }
+.settings button { margin-top:8px; padding:8px 12px; background:transparent; border:1px solid var(--line); color:var(--ink); font-size:14px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Камень, ножницы, бумага</h1>
+  <p>Покажите жест в камеру. Раунд начнётся, когда модель уверенно и без перерыва узнаёт один и тот же жест. Между раундами убирайте руку из кадра.</p>
+  <div class="layout">
+    <div class="camera" id="camera" aria-label="Изображение с камеры"></div>
+    <section class="panel">
+      <p class="label">Ваш жест</p><div class="choice" id="playerChoice">Пока не распознан</div>
+      <p class="label">Жест компьютера</p><div class="choice" id="computerChoice">—</div>
+      <p class="label">Результат</p><div class="choice" id="outcome">—</div>
+      <div class="score"><div>Вы<b id="wins">0</b></div><div>Компьютер<b id="losses">0</b></div><div>Ничьи<b id="draws">0</b></div></div>
+      <div class="status" id="status">Загружаем модель и запрашиваем камеру…</div>
+      <button id="nextRound" disabled>Следующий раунд</button>
+      <details class="settings" id="settings">
+        <summary id="settingsTitle">Настройки</summary>
+        <label for="confidenceInput">Порог уверенности: <b id="confidenceValue"></b></label>
+        <input type="range" id="confidenceInput" min="50" max="99" step="1">
+        <p class="explain">Жест засчитывается, только если модель уверена в нём не меньше чем на столько процентов.</p>
+        <label for="holdInput">Держать жест: <b id="holdValue"></b></label>
+        <input type="range" id="holdInput" min="0" max="2" step="0.1">
+        <p class="explain">Сколько секунд модель должна видеть один и тот же жест без перерыва, чтобы раунд засчитался. Столько же рука должна быть убрана перед следующим раундом.</p>
+        <button type="button" id="resetSettings">Вернуть по умолчанию</button>
+      </details>
+    </section>
+  </div>
+  <p class="note">Модель берётся из <code>./model/model.json</code>. Открывайте этот файл через <code>http://localhost:8000</code>, а не двойным кликом.</p>
+</main>
+<script src="./lib/tf.min.js"></script>
+<script src="./lib/teachablemachine-image.min.js"></script>
+<script>
+const MODEL_URL = './model/';
+const GESTURES = ['камень', 'ножницы', 'бумага'];
+const DEFAULT_MIN_CONFIDENCE = 0.85;
+const DEFAULT_HOLD_SECONDS = 0.3;
+const SETTINGS_KEY = 'rps-settings';
+let minConfidence = DEFAULT_MIN_CONFIDENCE;
+let holdSeconds = DEFAULT_HOLD_SECONDS;
+const beats = { 'камень':'ножницы', 'ножницы':'бумага', 'бумага':'камень' };
+let model;
+let webcam;
+let streakGesture = '';
+let streakStart = 0;
+let readyForRound = true;
+let awaitingNeutral = false;
+let neutralStart = 0;
+let score = { wins:0, losses:0, draws:0 };
+const playerChoice = document.getElementById('playerChoice');
+const computerChoice = document.getElementById('computerChoice');
+const outcome = document.getElementById('outcome');
+const status = document.getElementById('status');
+const nextRound = document.getElementById('nextRound');
+const confidenceInput = document.getElementById('confidenceInput');
+const holdInput = document.getElementById('holdInput');
+function percent() { return Math.round(minConfidence * 100); }
+function seconds(value) { return `${value.toFixed(1).replace('.', ',')} с`; }
+function showSettings() {
+  confidenceInput.value = percent();
+  holdInput.value = holdSeconds;
+  document.getElementById('confidenceValue').textContent = `${percent()}%`;
+  document.getElementById('holdValue').textContent = seconds(holdSeconds);
+  const changed = minConfidence !== DEFAULT_MIN_CONFIDENCE || holdSeconds !== DEFAULT_HOLD_SECONDS;
+  document.getElementById('settingsTitle').textContent = changed ? 'Настройки (изменены)' : 'Настройки';
+}
+function saveSettings() {
+  try { localStorage.setItem(SETTINGS_KEY, JSON.stringify({ minConfidence, holdSeconds })); } catch (_) {}
+  showSettings();
+}
+function loadSettings() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
+    if (saved.minConfidence >= 0.5 && saved.minConfidence <= 0.99) minConfidence = saved.minConfidence;
+    if (saved.holdSeconds >= 0 && saved.holdSeconds <= 2) holdSeconds = saved.holdSeconds;
+  } catch (_) {}
+  showSettings();
+}
+function normalize(label) { return label.toLowerCase().trim().replace(/\s+/g, ' '); }
+function stopCamera() { try { webcam?.stop(); } catch (_) {} }
+function setStatus(message, type = '') { status.textContent = message; status.className = `status ${type}`; }
+function chooseComputer() { return GESTURES[Math.floor(Math.random() * GESTURES.length)]; }
+function updateScore() { document.getElementById('wins').textContent = score.wins; document.getElementById('losses').textContent = score.losses; document.getElementById('draws').textContent = score.draws; }
+function playRound(player) { const computer = chooseComputer(); let result; if (player === computer) { result = 'Ничья'; score.draws++; } else if (beats[player] === computer) { result = 'Вы победили'; score.wins++; } else { result = 'Компьютер победил'; score.losses++; } playerChoice.textContent = player; computerChoice.textContent = computer; outcome.textContent = result; updateScore(); readyForRound = false; nextRound.disabled = false; setStatus('Раунд завершён. Нажмите «Следующий раунд», затем покажите новый жест.'); }
+async function predict() {
+  if (!model || !webcam || !readyForRound) return;
+  const predictions = await model.predict(webcam.canvas);
+  const best = predictions.reduce((current, candidate) => current.probability > candidate.probability ? current : candidate);
+  const gesture = normalize(best.className);
+  const confidentGesture = GESTURES.includes(gesture) && best.probability >= minConfidence;
+  const now = performance.now();
+  playerChoice.textContent = `${gesture} (${Math.round(best.probability * 100)}%)`;
+  if (awaitingNeutral) {
+    if (confidentGesture) {
+      neutralStart = 0;
+      setStatus(`Уберите руку из кадра: модель всё ещё видит «${gesture}».`, 'warn');
+      return;
+    }
+    if (!neutralStart) neutralStart = now;
+    if ((now - neutralStart) / 1000 >= holdSeconds) {
+      awaitingNeutral = false;
+      setStatus('Рука убрана. Покажите новый игровой жест.');
+    } else {
+      setStatus('Проверяем, что рука убрана…', 'warn');
+    }
+    return;
+  }
+  if (confidentGesture) {
+    if (gesture !== streakGesture) { streakGesture = gesture; streakStart = now; }
+    const held = (now - streakStart) / 1000;
+    setStatus(`Вижу «${gesture}»: ${seconds(Math.min(held, holdSeconds))} из ${seconds(holdSeconds)}.`);
+    if (held >= holdSeconds) playRound(gesture);
+  } else {
+    streakGesture = '';
+    setStatus(`Ждём игровой жест с уверенностью не ниже ${percent()}%.`, 'warn');
+  }
+}
+async function loop() {
+  try {
+    webcam.update();
+    await predict();
+    requestAnimationFrame(loop);
+  } catch (error) {
+    stopCamera();
+    nextRound.disabled = true;
+    console.error(error);
+    setStatus('Распознавание остановлено. Обновите страницу; если ошибка повторяется, проверьте экспорт модели и браузер с преподавателем.', 'error');
+  }
+}
+async function init() {
+  let step = 'проверка';
+  try {
+    if (location.protocol === 'file:') throw new Error('Откройте игру через http://localhost:8000, а не двойным кликом.');
+    if (!window.tf || !window.tmImage) throw new Error('Не найдены библиотеки. Скопируйте папку lib рядом с файлом игры и обновите страницу.');
+    step = 'модель';
+    model = await tmImage.load(`${MODEL_URL}model.json`, `${MODEL_URL}metadata.json`);
+    step = 'классы';
+    const labels = model.getClassLabels().map(normalize);
+    const expected = [...GESTURES, 'нет жеста'];
+    if (labels.length !== expected.length || !expected.every(label => labels.includes(label))) {
+      throw new Error('Нужны ровно четыре класса: камень, ножницы, бумага, нет жеста. Исправьте названия в Teachable Machine, обучите и скачайте модель заново.');
+    }
+    step = 'камера';
+    webcam = new tmImage.Webcam(400, 400, true);
+    await webcam.setup();
+    await webcam.play();
+    document.getElementById('camera').appendChild(webcam.canvas);
+    setStatus('Модель загружена. Покажите камень, ножницы или бумагу.');
+    loop();
+  } catch (error) {
+    stopCamera();
+    console.error(error);
+    let message = error.message;
+    if (step === 'модель') message = 'Не удалось загрузить модель. Проверьте папку model: model.json, metadata.json и все файлы весов из архива. Откройте localhost:8000/model/model.json: должен появиться текст, а не ошибка 404.';
+    if (step === 'камера') message = 'Камера недоступна. Разрешите её для localhost в браузере и настройках ОС, закройте вкладку Teachable Machine и другие приложения с камерой, затем обновите игру.';
+    setStatus(message, 'error');
+  }
+}
+nextRound.addEventListener('click', () => {
+  readyForRound = true;
+  awaitingNeutral = true;
+  neutralStart = 0;
+  streakGesture = '';
+  playerChoice.textContent = 'Пока не распознан';
+  computerChoice.textContent = '—';
+  outcome.textContent = '—';
+  nextRound.disabled = true;
+  setStatus('Уберите руку из кадра, затем покажите новый жест.');
+});
+confidenceInput.addEventListener('input', () => { minConfidence = Number(confidenceInput.value) / 100; saveSettings(); });
+holdInput.addEventListener('input', () => { holdSeconds = Number(holdInput.value); saveSettings(); });
+document.getElementById('resetSettings').addEventListener('click', () => { minConfidence = DEFAULT_MIN_CONFIDENCE; holdSeconds = DEFAULT_HOLD_SECONDS; saveSettings(); });
+addEventListener('pagehide', stopCamera);
+loadSettings();
+init();
+</script>
+</body>
+</html>
